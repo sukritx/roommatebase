@@ -2,8 +2,16 @@ const jwt = require('jsonwebtoken');
 
 const authenticateToken = (req, res, next) => {
   // Skip authentication for certain paths
-  const publicPaths = ['/api/v1/auth/csrf-token', '/api/v1/auth/signin', '/api/v1/auth/signup'];
-  if (publicPaths.includes(req.path)) {
+  const publicPaths = [
+    '/api/auth/csrf-token',
+    '/api/auth/signin',
+    '/api/auth/signup',
+    '/api/auth/google',
+    '/api/auth/google/callback',
+    '/api/rooms' // GET requests to view rooms are public
+  ];
+
+  if (publicPaths.includes(req.path) || (req.path === '/api/rooms' && req.method === 'GET')) {
     return next();
   }
 
@@ -22,6 +30,4 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-module.exports = {
-  authenticateToken
-};
+module.exports = authenticateToken;

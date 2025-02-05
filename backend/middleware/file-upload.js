@@ -27,7 +27,9 @@ const fileUpload = (options = {}) => {
   const { 
     fileType = 'image', 
     maxSize = 5000000,
-    destination = 'uploads'
+    destination = 'uploads',
+    multiple = false,
+    maxCount = 5
   } = options;
 
   const storage = multer.memoryStorage();
@@ -40,40 +42,55 @@ const fileUpload = (options = {}) => {
 
   const upload = multer({ storage: storage, fileFilter: fileFilter, limits: { fileSize: maxSize } });
 
+  const processImage = async (file, userId) => {
+    const buffer = await sharp(file.buffer, { failOnError: false })
+      .resize({ width: 1000, height: 1000, fit: 'inside' })
+      .webp({ quality: 70 })
+      .toBuffer();
+
+    const fileName = `${userId}/${destination}/${Date.now()}-${Math.random().toString(36).substring(7)}.webp`;
+
+    const uploadParams = {
+      Bucket: process.env.DO_SPACES_BUCKET,
+      Key: fileName,
+      Body: buffer,
+      ContentType: 'image/webp',
+      ACL: 'public-read'
+    };
+
+    const command = new PutObjectCommand(uploadParams);
+    await s3Client.send(command);
+
+    return {
+      key: fileName,
+      location: `https://${process.env.DO_SPACES_BUCKET}.${process.env.DO_SPACES_REGION}.digitaloceanspaces.com/${fileName}`
+    };
+  };
+
   return (req, res, next) => {
-    upload.single('image')(req, res, async (err) => {
+    const uploadMiddleware = multiple ? upload.array('images', maxCount) : upload.single('image');
+
+    uploadMiddleware(req, res, async (err) => {
       if (err) {
         return next(err);
       }
 
-      if (!req.file) {
-        return next();
-      }
-
       try {
-        let imageBuffer = req.file.buffer;
-
-        const buffer = await sharp(imageBuffer, { failOnError: false })
-          .resize({ width: 1000, height: 1000, fit: 'inside' })
-          .webp({ quality: 70 })
-          .toBuffer();
-
-        const userId = req.userId;
-        const fileName = `${userId}/${destination}/${Date.now()}.webp`;
-
-        const uploadParams = {
-          Bucket: process.env.DO_SPACES_BUCKET,
-          Key: fileName,
-          Body: buffer,
-          ContentType: 'image/webp',
-          ACL: 'public-read'
-        };
-
-        const command = new PutObjectCommand(uploadParams);
-        await s3Client.send(command);
-
-        req.file.key = fileName;
-        req.file.location = `https://${process.env.DO_SPACES_BUCKET}.${process.env.DO_SPACES_REGION}.digitaloceanspaces.com/${fileName}`;
+        if (multiple && req.files) {
+          const processedFiles = await Promise.all(
+            req.files.map(file => processImage(file, req.userId))
+          );
+          
+          req.files = req.files.map((file, index) => ({
+            ...file,
+            key: processedFiles[index].key,
+            location: processedFiles[index].location
+          }));
+        } else if (!multiple && req.file) {
+          const processed = await processImage(req.file, req.userId);
+          req.file.key = processed.key;
+          req.file.location = processed.location;
+        }
 
         next();
       } catch (error) {

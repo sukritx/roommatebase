@@ -2,7 +2,9 @@ const User = require('../models/user.model');
 
 const getCurrentUser = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).populate('favorites');
+    const user = await User.findById(req.user.id)
+      .select('-password')
+      .populate('favorites');
     res.json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -11,7 +13,9 @@ const getCurrentUser = async (req, res) => {
 
 const getFavorites = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).populate('favorites');
+    const user = await User.findById(req.user.id)
+      .select('favorites')
+      .populate('favorites');
     res.json(user.favorites);
   } catch (error) {
     res.status(500).json({ message: error.message });
